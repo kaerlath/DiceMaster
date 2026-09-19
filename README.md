@@ -26,13 +26,7 @@ Manual developer installation is also available from [Releases](https://github.c
 - Server-scheduled 2.4–5 second rolls. Everyone sees the roller's chosen skin, not their own preference applied to someone else's roll.
 - Five color finishes and six texture skins: Moonstone Marble, Elderwood, Astral Glass, Obsidian Relic, Frostbound and Crimson Velvet.
 - Shared room roster and recent roll history.
-- Individually issued GM access, private per-participant modifiers applied to **each die**, and server-enforced permissions. Creating a room never grants GM access.
 
-## GM authentication
-
-Obtain an individual code privately from the relay operator. Join a room, open Connection, enter it under **Server Authentication**, optionally check **Remember on this device**, and authenticate. The GM Controls tab appears only after server confirmation.
-
-The input field clears after use. Remembered credentials are encrypted for your Windows user using DPAPI in the plugin configuration directory, outside the plugin update directory. They are bound to the relay address. Joining a room after a reload requests a fresh authorized session. Sessions last 15 minutes; use Restore saved authentication when needed. Forget saved code removes the local saved copy; End authenticated session ends the current session. Never post access codes in issues or screenshots.
 
 ## Build and checks
 
