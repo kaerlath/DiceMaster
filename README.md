@@ -45,7 +45,7 @@ See [relay operator setup](docs/RELAY.md) for self-hosting and [protocol](docs/P
 
 ## Current limits
 
-This is intended for small groups: 50 simultaneous rooms, 32 participants per room, 12-hour room lifetimes and 90-second membership leases. Display names are not verified FFXIV identities. The relay stores private room data and a bounded operator audit history. Natural rolls and modifiers are never sent to ordinary clients, although repeated outcomes can statistically reveal bias.
+This is intended for small groups: 50 simultaneous rooms, 32 participants per room, 12-hour room lifetimes and 90-second membership leases. Display names are not verified FFXIV identities.
 
 Animation is procedural rather than rigid-body physics; glass and frost use opaque textures and highlights, not true refraction. Timing uses approximate server-clock synchronization. Further in-game visual and network testing is welcome. Remembered authentication has been built but its Windows DPAPI round-trip could not be verified inside the development sandbox.
 
