@@ -131,7 +131,7 @@ public sealed class DiceWindow : Window
             else
             {
                 var uv=FaceTextureCoordinates.For(mesh,f);
-                var tint=DiceSkin.Color(new Vector3(.54f+.46f*illumination));
+                var tint=DiceSkin.Color(skin.Tint*(.54f+.46f*illumination));
                 for (var i=1;i<projected.Length-1;i++)
                 {
                     // Degenerate fourth vertex gives a single textured triangle.

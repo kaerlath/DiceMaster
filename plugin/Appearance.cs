@@ -3,9 +3,10 @@ using Dalamud.Bindings.ImGui;
 
 namespace DiceMaster;
 
-public sealed record DiceSkin(string Name, string Description, Vector3 Face, Vector3 Edge, Vector3 Ink, Vector3 Felt, float Shine, string? Texture = null)
+public sealed record DiceSkin(string Name, string Description, Vector3 Face, Vector3 Edge, Vector3 Ink, Vector3 Felt, float Shine, string? Texture = null, string? SkinId = null, Vector3? TextureTint = null)
 {
-    public string Id => Texture ?? Name.ToLowerInvariant().Replace(' ','-');
+    public string Id => SkinId ?? Texture ?? Name.ToLowerInvariant().Replace(' ','-');
+    public Vector3 Tint => TextureTint ?? Vector3.One;
     public static DiceSkin FromId(string? id) => All.FirstOrDefault(s => s.Id == id) ?? All[0];
     public static readonly DiceSkin[] All =
     [
@@ -19,7 +20,15 @@ public sealed record DiceSkin(string Name, string Description, Vector3 Face, Vec
         new("Astral Glass", "Violet nebula, stars and luminous facets.", new(.12f,.10f,.36f), new(.50f,.62f,.93f), new(.96f,.96f,1), new(.045f,.05f,.14f), .55f,"astral-glass"),
         new("Obsidian Relic", "Volcanic stone repaired with gold.", new(.10f,.10f,.10f), new(.79f,.60f,.26f), new(1,.85f,.51f), new(.055f,.055f,.065f), .28f,"obsidian-relic"),
         new("Frostbound", "Icy veins with deep blue engraving.", new(.63f,.81f,.94f), new(.68f,.86f,1), new(.025f,.10f,.21f), new(.055f,.10f,.14f), .5f,"frostbound"),
-        new("Crimson Velvet", "Burgundy damask and antique copper.", new(.37f,.055f,.085f), new(.83f,.48f,.29f), new(1,.92f,.79f), new(.105f,.035f,.05f), .2f,"crimson-velvet")
+        new("Crimson Velvet", "Burgundy damask and antique copper.", new(.37f,.055f,.085f), new(.83f,.48f,.29f), new(1,.92f,.79f), new(.105f,.035f,.05f), .2f,"crimson-velvet"),
+        new("Emerald Marble", "Green mineral veins and warm gold.", new(.2f,.65f,.36f), new(.86f,.72f,.33f), new(.04f,.13f,.07f), new(.03f,.10f,.07f), .35f,"moonstone-marble","emerald-marble",new(.36f,.95f,.55f)),
+        new("Rose Quartz", "Blush stone with rose-gold edges.", new(.95f,.55f,.70f), new(.88f,.60f,.48f), new(.25f,.07f,.14f), new(.12f,.045f,.085f), .4f,"moonstone-marble","rose-quartz",new(1,.62f,.82f)),
+        new("Sapphire Marble", "Cool blue mineral and silver.", new(.3f,.55f,.95f), new(.7f,.82f,1), new(.035f,.08f,.23f), new(.035f,.06f,.13f), .45f,"moonstone-marble","sapphire-marble",new(.38f,.65f,1)),
+        new("Amethyst Ice", "Lavender frost and silver engraving.", new(.65f,.4f,.9f), new(.82f,.7f,1), new(.12f,.04f,.23f), new(.08f,.04f,.13f), .5f,"frostbound","amethyst-ice",new(.95f,.60f,1)),
+        new("Jade Frost", "Mint glacial veins and deep green ink.", new(.3f,.9f,.65f), new(.62f,1,.82f), new(.02f,.15f,.10f), new(.025f,.10f,.07f), .5f,"frostbound","jade-frost",new(.55f,1,.68f)),
+        new("Honey Amber", "Golden honey stone with bronze trim.", new(.95f,.66f,.2f), new(.78f,.47f,.18f), new(.23f,.10f,.025f), new(.12f,.07f,.03f), .4f,"moonstone-marble","honey-amber",new(1,.75f,.32f)),
+        new("Rainbow Opal", "Pearlescent rainbow mineral and pale gold.", new(.9f,.8f,.9f), new(.91f,.80f,.53f), new(.17f,.07f,.23f), new(.07f,.06f,.12f), .55f,"rainbow-opal"),
+        new("Prismatic Night", "Rainbow ribbons through dark, gold-veined stone.", new(.14f,.12f,.3f), new(.92f,.73f,.34f), new(1,.95f,.79f), new(.035f,.04f,.10f), .5f,"prismatic-night")
     ];
     public static DiceSkin Selected(Configuration c) => All[Math.Clamp(c.Skin,0,All.Length-1)];
     public static uint Color(Vector3 c,float alpha=1) => ImGui.ColorConvertFloat4ToU32(new(c,alpha));

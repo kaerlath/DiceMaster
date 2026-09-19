@@ -11,6 +11,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDalamudPluginInterface Interface { get; private set; } = null!;
     [PluginService] internal static ICommandManager Commands { get; private set; } = null!;
     [PluginService] internal static ITextureProvider Textures { get; private set; } = null!;
+    [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
     private readonly WindowSystem windows = new("DiceMaster");
     private readonly RelayClient relay;
     private readonly MainWindow main;

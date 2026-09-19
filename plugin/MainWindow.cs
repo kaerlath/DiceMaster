@@ -12,6 +12,8 @@ public sealed class MainWindow : Window
     private string endpoint, name, room = "", credential = "";
     private int count = 1, selected = 5;
     private bool rememberAuthentication;
+    private bool publicTable = true, nameEdited;
+    private string tableTitle = "", browserEndpoint = "";
     private readonly int[] sides = [4,6,8,10,12,20,100];
     private readonly Dictionary<string,int> drafts = [];
     public MainWindow(Configuration config, RelayClient relay, Action save, Action showDice) : base("DiceMaster")
@@ -40,12 +42,40 @@ public sealed class MainWindow : Window
         ImGui.Spacing(); ImGui.BeginDisabled(relay.Busy);
         if (!relay.Joined)
         {
-            Appearance.Heading("Take a seat","Create a table, or enter a friend's room code.");
-            ImGui.SetNextItemWidth(-1); ImGui.InputTextWithHint("##name","Your display name",ref name,48);
-            if (ImGui.Button("Create a room",new Vector2(-1,42))) Connect(true);
-            ImGui.Spacing();
+            Appearance.Heading("Take a seat","Join a public table, create your own, or use a room code.");
+            if (!nameEdited && string.IsNullOrWhiteSpace(config.DisplayName) && Plugin.PlayerState.IsLoaded)
+                name = Plugin.PlayerState.CharacterName.Trim();
+            ImGui.TextUnformatted("Your Display Name");
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.InputTextWithHint("##name","Character name or a name of your choice",ref name,48)) nameEdited = true;
+            var missingName = string.IsNullOrWhiteSpace(name);
+            if (missingName) ImGui.TextWrapped("Enter a name above to create or join a table.");
+            var effectiveEndpoint = string.IsNullOrWhiteSpace(endpoint) ? Configuration.DefaultRelayUrl : endpoint.Trim();
+            if (browserEndpoint != effectiveEndpoint && !relay.Busy)
+            { browserEndpoint = effectiveEndpoint; relay.Run(() => relay.Browse(effectiveEndpoint)); }
+            ImGui.TextUnformatted("Public tables"); ImGui.SameLine();
+            if (ImGui.SmallButton("Refresh tables")) relay.Run(() => relay.Browse(effectiveEndpoint));
+            ImGui.TextWrapped(relay.BrowserStatus);
+            ImGui.BeginChild("public-tables",new Vector2(0,130),true);
+            foreach (var table in relay.PublicRooms)
+            {
+                ImGui.PushID(table.Code);
+                ImGui.BeginDisabled(missingName || table.Participants >= table.Capacity);
+                if (ImGui.SmallButton("Join")) { room = table.Code; Connect(false); }
+                ImGui.EndDisabled(); ImGui.SameLine();
+                ImGui.TextUnformatted($"{table.Title}  ({table.Participants}/{table.Capacity})");
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(table.Code);
+                ImGui.PopID();
+            }
+            ImGui.EndChild();
+            ImGui.SetNextItemWidth(-1); ImGui.InputTextWithHint("##table-title","New table name (optional)",ref tableTitle,64);
+            ImGui.Checkbox("List my new table publicly",ref publicTable);
+            ImGui.BeginDisabled(missingName);
+            if (ImGui.Button("Create a room",new Vector2(-1,38))) Connect(true);
             ImGui.SetNextItemWidth(-1); ImGui.InputTextWithHint("##room","Room code",ref room,10);
+            ImGui.BeginDisabled(room.Trim().Length != 10);
             if (ImGui.Button("Join room",new Vector2(-1,38))) Connect(false);
+            ImGui.EndDisabled(); ImGui.EndDisabled();
         }
         else
         {
@@ -83,7 +113,7 @@ public sealed class MainWindow : Window
         {
             var skin=DiceSkin.All[i]; ImGui.PushID(i);
             var texture=skin.Texture == null ? null : Plugin.Textures.GetFromFile(System.IO.Path.Combine(Plugin.Interface.AssemblyLocation.DirectoryName!,"Assets","Skins",skin.Texture+".png")).GetWrapOrDefault();
-            if (texture != null) ImGui.Image(texture.Handle,new Vector2(30,30));
+            if (texture != null) ImGui.Image(texture.Handle,new Vector2(30,30),Vector2.Zero,Vector2.One,new Vector4(skin.Tint,1));
             else ImGui.ColorButton("##swatch",new Vector4(skin.Face,1),ImGuiColorEditFlags.NoTooltip,new Vector2(30,30));
             ImGui.SameLine();
             if (ImGui.Selectable(skin.Name,config.Skin==i,ImGuiSelectableFlags.None,new Vector2(0,30))) { config.Skin=i; save(); }
@@ -101,7 +131,7 @@ public sealed class MainWindow : Window
         if (relay.Joined)
         {
             ImGui.TextUnformatted($"Connected to {relay.Room}");
-            if (ImGui.Button("Leave room")) { credential=""; relay.Run(relay.Leave); }
+            if (ImGui.Button("Leave room")) { credential=""; browserEndpoint=""; relay.Run(relay.Leave); }
         }
         else
         {
@@ -148,8 +178,10 @@ public sealed class MainWindow : Window
     }
     private void Connect(bool create)
     {
-        config.RelayUrl=endpoint.Trim(); config.DisplayName=name.Trim(); save();
+        endpoint=string.IsNullOrWhiteSpace(endpoint) ? Configuration.DefaultRelayUrl : endpoint.Trim();
+        config.RelayUrl=endpoint; config.DisplayName=name.Trim(); save();
         var url=endpoint; var display=name; var code=room;
-        relay.Run(()=>relay.Join(url,display,code,create)); showDice();
+        var listed=publicTable; var title=string.IsNullOrWhiteSpace(tableTitle) ? "Dice table" : tableTitle.Trim();
+        relay.Run(()=>relay.Join(url,display,code,create,listed,title)); showDice();
     }
 }

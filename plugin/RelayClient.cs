@@ -30,6 +30,8 @@ public sealed class RelayClient : IDisposable
     public bool Joined => joined;
     public bool CanManage { get; private set; }
     public Participant[] Participants { get; private set; } = [];
+    public PublicRoom[] PublicRooms { get; private set; } = [];
+    public string BrowserStatus { get; private set; } = "Refresh to find public tables.";
     public Dictionary<string, int> Modifiers { get; private set; } = [];
     public List<Roll> Rolls { get; } = [];
     public long ServerNow => Interlocked.Read(ref clockServer) + (long)Stopwatch.GetElapsedTime(Interlocked.Read(ref clockStamp)).TotalMilliseconds;
@@ -54,7 +56,9 @@ public sealed class RelayClient : IDisposable
             await gate.WaitAsync(stop.Token);
             try { await action(); } finally { gate.Release(); }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (OperationCanceledException) { updates.Enqueue(() => Status = "The relay took too long to respond. Please retry."); }
+        catch (ArgumentException e) { updates.Enqueue(() => Status = e.Message); }
         catch (HttpRequestException e)
         {
             updates.Enqueue(() => { Status = e.StatusCode == HttpStatusCode.Forbidden ? "Authorization required or expired." : "Request failed. Check the relay and room connection."; ClearPrivilege(); });
@@ -73,15 +77,36 @@ public sealed class RelayClient : IDisposable
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(json, stop.Token) ?? throw new InvalidDataException();
     }
-    public async Task Join(string endpoint, string name, string code, bool create)
+    private static Uri RelayOrigin(string endpoint)
     {
+        endpoint = string.IsNullOrWhiteSpace(endpoint) ? Configuration.DefaultRelayUrl : endpoint.Trim();
         if (!Uri.TryCreate(endpoint.TrimEnd('/') + "/", UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length > 0 || uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.Fragment.Length > 0)
-            throw new InvalidDataException("HTTPS relay origin required");
+            throw new ArgumentException("Enter a valid HTTPS relay address, or use the default relay.");
+        return uri;
+    }
+    public async Task Browse(string endpoint)
+    {
+        if (joined) return;
+        updates.Enqueue(() => { PublicRooms = []; BrowserStatus = "Looking for tables…"; });
+        try
+        {
+            // Browsing is anonymous; never send room tokens or GM authorization.
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(RelayOrigin(endpoint), "v1/rooms")) { Content = JsonContent.Create(new { }) };
+            using var response = await http.SendAsync(request, stop.Token);
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<RoomsReply>(json, stop.Token) ?? throw new InvalidDataException();
+            updates.Enqueue(() => { PublicRooms = result.Rooms; BrowserStatus = result.Rooms.Length == 0 ? "No public tables yet. Create one below." : "Select Join beside a table."; });
+        }
+        catch { updates.Enqueue(() => BrowserStatus = "Could not load tables. Check the relay, then refresh."); throw; }
+    }
+    public async Task Join(string endpoint, string name, string code, bool create, bool listed = false, string title = "Dice table")
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Enter Your Display Name before joining a table.");
         // HttpClient.BaseAddress is immutable after first request; use absolute request paths via a new origin field.
-        origin = uri;
+        origin = RelayOrigin(endpoint);
         participantToken = gmToken = ""; sequence = 0;
         var start = Stopwatch.GetTimestamp();
-        var result = await PostAt<JoinReply>(create ? "v1/create" : "v1/join", create ? new { name } : (object)new { name, room = code.Trim().ToUpperInvariant() });
+        var result = await PostAt<JoinReply>(create ? "v1/create" : "v1/join", create ? new { name, listed, title } : (object)new { name, room = code.Trim().ToUpperInvariant() });
         Room = result.Room; ParticipantId = result.Participant; participantToken = result.Token;
         SetClock(result.ServerTime, start);
         joined = true;
@@ -163,7 +188,7 @@ public sealed class RelayClient : IDisposable
         {
             try
             {
-                await Task.Delay(failures == 0 ? 250 : Math.Min(8000, 500 * (1 << Math.Min(failures, 4))), stop.Token);
+                await Task.Delay(failures == 0 ? 1000 : Math.Min(8000, 500 * (1 << Math.Min(failures, 4))), stop.Token);
                 await gate.WaitAsync(stop.Token);
                 try
                 {
@@ -191,6 +216,8 @@ public sealed class RelayClient : IDisposable
                 finally { gate.Release(); }
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
+            catch (HttpRequestException e) when (e.StatusCode is { } status && (int)status >= 500)
+            { failures++; updates.Enqueue(() => { ClearPrivilege(); Status = $"Relay unavailable (HTTP {(int)status}); retrying…"; }); }
             catch { failures++; updates.Enqueue(() => { ClearPrivilege(); Status = joined ? "Connection interrupted; retrying…" : "Session ended. Join the room again."; }); }
         }
     }

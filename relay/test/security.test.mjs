@@ -154,3 +154,34 @@ test('every bundled skin is accepted; old clients default to aether teal', async
     assert.equal(result.status,200); assert.equal(result.body.skin,skin??'aether-teal');
   }
 });
+
+test('public directory is opt-in, sanitized, persistent, and expires with rooms', async () => {
+  const h = harness();
+  const legacy = await h.create();
+  const privateRoom = (await h.call('create',{name:'Private',listed:false,title:'Hidden'})).body;
+  const owner = (await h.call('create',{name:'Owner',listed:true,title:'  Rainbow table  '})).body;
+  const gm = await h.authenticate(owner);
+  await h.call('gm/set',{room:owner.room,participant:owner.participant,value:4},owner,gm);
+  const guest = await h.join(owner.room);
+  let listing = await h.call('rooms',{});
+  assert.equal(listing.status,200);
+  assert.deepEqual(listing.body,{rooms:[{code:owner.room,title:'Rainbow table',participants:2,capacity:32}]});
+  h.restart();
+  assert.deepEqual((await h.call('rooms',{})).body,listing.body);
+  assert.equal((await h.call('gm/modifiers',{room:owner.room},guest)).status,403);
+  await h.call('leave',{room:owner.room},guest);
+  assert.equal((await h.call('rooms',{})).body.rooms[0].participants,1);
+  h.advance(90001);
+  assert.deepEqual((await h.call('rooms',{})).body,{rooms:[]});
+});
+
+test('public directory validates input and limits anonymous browsing', async () => {
+  const h = harness();
+  for (const body of [null, {name:'x',listed:true}, {name:'x',listed:'true',title:'t'}, {name:'x',listed:true,title:''}, {name:'x',listed:true,title:'x'.repeat(65)}, {name:'x',listed:true,title:'line\nbreak'}, {name:'x',listed:true,title:'t',canManage:true}])
+    assert.equal((await h.call('create',body)).status,400);
+  assert.equal((await h.call('rooms',{includeModifiers:true})).status,400);
+  for (let i=0;i<120;i++) assert.equal((await h.call('rooms',{})).status,200);
+  assert.equal((await h.call('rooms',{})).status,429);
+  h.advance(60001);
+  assert.equal((await h.call('rooms',{})).status,200);
+});

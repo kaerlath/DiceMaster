@@ -42,3 +42,35 @@ test('Worker storage persists rooms, permissions and audit atomically across ins
   assert.equal(db.prepare("SELECT * FROM state WHERE key LIKE 'person|%' OR key LIKE 'room|%'").all().length,0);
   db.close();
 });
+
+test('idle polling avoids repeated disk reads and writes while leases remain durable', async t => {
+  let now=1000000, writes=0, reads=0, alarm=null;
+  t.mock.method(Date,'now',()=>now);
+  const db=new DatabaseSync(':memory:');
+  const ctx={blockConcurrencyWhile:fn=>fn(),storage:{
+    sql:{exec:(sql,...args)=>{if(sql.startsWith('SELECT'))reads++; if(sql.startsWith('INSERT')||sql.startsWith('DELETE'))writes++; return db.prepare(sql).all(...args);}},
+    transactionSync:fn=>{db.exec('BEGIN');try{fn();db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}},
+    getAlarm:async()=>alarm,setAlarm:async n=>{alarm=n;}
+  }};
+  const env={ADMIN_KEY:token()}; let worker=new Authority(ctx,env);
+  async function call(path,body,user) {
+    const headers={'Content-Type':'application/json'};
+    if(user)headers.Authorization=`Bearer ${user.token}`;
+    const r=await worker.fetch(new Request(`https://relay.test/v1/${path}`,{method:'POST',headers,body:JSON.stringify(body)}));
+    assert.equal(r.status,200); return r.json();
+  }
+  const people=[await call('create',{name:'First',listed:true,title:'Public'})];
+  for(let i=0;i<3;i++)people.push(await call('join',{name:'Guest',room:people[0].room}));
+  const baseline=writes; reads=0;
+  for(let tick=0;tick<240;tick++) {
+    now+=250;
+    for(const p of people)await call('poll',{room:p.room,after:0},p);
+  }
+  assert(writes-baseline<=24,`960 polls caused ${writes-baseline} row mutations`);
+  assert.equal(reads,0,'live instance should not reload the database for every poll');
+  worker=new Authority(ctx,env);
+  assert.equal((await call('rooms',{})).rooms[0].participants,4);
+  now+=90001; await worker.alarm();
+  assert.deepEqual((await call('rooms',{})).rooms,[]);
+  db.close();
+});

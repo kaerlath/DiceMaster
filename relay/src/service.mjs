@@ -6,7 +6,7 @@ const need = (ok, status = 400) => { if (!ok) throw new Fault(status); };
 const exact = (body, keys) => need(body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(k => keys.includes(k)) && keys.every(k => Object.hasOwn(body, k)));
 const validToken = s => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
 const SESSION = 15 * 60000, LEASE = 90000, ROOM = 12 * 3600000;
-export const SKINS = ['aether-teal','royal-amethyst','obsidian-gold','ivory-brass','ember-copper','moonstone-marble','elderwood','astral-glass','obsidian-relic','frostbound','crimson-velvet'];
+export const SKINS = ['aether-teal','royal-amethyst','obsidian-gold','ivory-brass','ember-copper','moonstone-marble','elderwood','astral-glass','obsidian-relic','frostbound','crimson-velvet','emerald-marble','rose-quartz','sapphire-marble','amethyst-ice','jade-frost','honey-amber','rainbow-opal','prismatic-night'];
 
 export class Service {
   constructor(state, adminKey, now = () => Date.now()) {
@@ -70,8 +70,21 @@ export class Service {
         if (path === '/v1/admin/audit') { exact(body, []); return reply(200, {events:this.state.audit}); }
         throw new Fault(404);
       }
+      if (path === '/v1/rooms') {
+        exact(body, []);
+        this.rate(`browse:${await hash(req.headers.get('CF-Connecting-IP') ?? 'local')}`, 120, 60000);
+        const rooms = Object.entries(this.state.rooms).filter(([,r]) => r.listed === true)
+          .map(([code,r]) => ({code, title:r.title, participants:Object.keys(r.people).length, capacity:32}))
+          .sort((a,b) => a.title.localeCompare(b.title) || a.code.localeCompare(b.code));
+        return reply(200, {rooms});
+      }
       if (path === '/v1/create' || path === '/v1/join') {
-        exact(body, path.endsWith('create') ? ['name'] : ['name','room']);
+        const options = path.endsWith('create') && body != null && (Object.hasOwn(body,'listed') || Object.hasOwn(body,'title'));
+        exact(body, path.endsWith('create') ? (options ? ['name','listed','title'] : ['name']) : ['name','room']);
+        if (options) {
+          need(typeof body.listed === 'boolean');
+          need(typeof body.title === 'string' && body.title.trim().length > 0 && body.title.length <= 64 && !/[\x00-\x1f\x7f]/.test(body.title));
+        }
         need(typeof body.name === 'string' && body.name.trim().length > 0 && body.name.length <= 48 && !/[\x00-\x1f\x7f]/.test(body.name));
         // IP comes from Cloudflare, never an arbitrary forwarding header.
         this.rate(`join:${await hash(req.headers.get('CF-Connecting-IP') ?? 'local')}`, 20, 60000);
@@ -79,7 +92,7 @@ export class Service {
         if (path.endsWith('create')) {
           need(Object.keys(this.state.rooms).length < 50, 503);
           do { code = Array.from({length:10}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[randomInt(31)]).join(''); } while (Object.hasOwn(this.state.rooms, code));
-          room = this.state.rooms[code] = {people:{}, modifiers:{}, rolls:[], seq:0, next:0, expires:this.now()+ROOM};
+          room = this.state.rooms[code] = {listed:options ? body.listed : false, title:options ? body.title.trim() : 'Dice table', people:{}, modifiers:{}, rolls:[], seq:0, next:0, expires:this.now()+ROOM};
         } else { need(typeof code === 'string' && /^[A-Z2-9]{10}$/.test(code)); room = this.state.rooms[code]; need(room, 404); }
         need(Object.keys(room.people).length < 32, 409);
         const id = crypto.randomUUID(), secret = token();
@@ -92,7 +105,8 @@ export class Service {
       need(validToken(bearer), 401);
       const digest = await hash(bearer);
       const person = Object.values(room.people).find(p => p.digest === digest); need(person, 401);
-      person.seen = this.now();
+      // A 90-second lease does not need a disk write on every poll.
+      if (this.now() - person.seen >= 15000) person.seen = this.now();
       this.rate(`person:${person.id}`, 360, 60000);
       const gmToken = req.headers.get('X-GM-Session') ?? '';
       const session = validToken(gmToken) ? this.state.sessions[await hash(gmToken)] : null;
@@ -150,7 +164,7 @@ export class Service {
         this.rate(`roll:${person.id}`, 20, 60000);
         need(room.next < this.now() + 15000, 429);
         const result = resolve(body.count, body.sides, room.modifiers[person.id] ?? 0);
-        const startsAt = Math.max(this.now() + 1200, room.next);
+        const startsAt = Math.max(this.now() + 1800, room.next);
         // Explicit public DTO: never spread server state or natural rolls here.
         const event = {id:crypto.randomUUID(), sequence:++room.seq, participant:person.id, name:person.name, skin, count:body.count, sides:body.sides, faces:result.faces, total:result.total, animationSeed:randomInt(0x100000000), startsAt, durationMs:2400+randomInt(2601)};
         room.next = startsAt + event.durationMs + 500;

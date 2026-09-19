@@ -15,6 +15,8 @@ public sealed class Configuration : IPluginConfiguration
     // credentials use a separate Windows-encrypted, relay-bound store.
 }
 public sealed record Participant(string Id, string Name);
+public sealed record PublicRoom(string Code, string Title, int Participants, int Capacity);
+public sealed record RoomsReply(PublicRoom[] Rooms);
 public sealed record Roll(string Id, long Sequence, string Participant, string Name, int Count, int Sides,
     int[] Faces, int Total, uint AnimationSeed, long StartsAt, int DurationMs, string Skin = "aether-teal");
 public sealed record JoinReply(string Room, string Participant, string Token, long ServerTime);

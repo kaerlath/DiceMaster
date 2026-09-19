@@ -13,6 +13,7 @@ export default {
 export class Authority {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env;
+    this.cached = null;
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
   }
   load() {
@@ -37,30 +38,42 @@ export class Authority {
       const {people,...rest} = room; rows.set(`room|${code}`,JSON.stringify(rest));
       for (const [id,person] of Object.entries(people)) rows.set(`person|${code}|${id}`,JSON.stringify(person));
     }
-    for (const kind of ['credentials','sessions','rates']) for (const [id,value] of Object.entries(state[kind])) rows.set(`${kind}|${id}`,JSON.stringify(value));
+    for (const kind of ['credentials','sessions','rates']) for (const [id,value] of Object.entries(state[kind])) {
+      // General per-participant traffic counters are instance-local. Credential
+      // throttles, revocation, sessions and all game state remain durable.
+      if (kind === 'rates' && id.startsWith('person:')) continue;
+      rows.set(`${kind}|${id}`,JSON.stringify(value));
+    }
     for (let i=0;i<state.audit.length;i+=100) rows.set(`audit|${i}`,JSON.stringify(state.audit.slice(i,i+100)));
     this.ctx.storage.transactionSync(() => {
       for (const [key,value] of rows) if (old.get(key) !== value) this.ctx.storage.sql.exec('INSERT OR REPLACE INTO state(key,value) VALUES (?,?)',key,value);
       for (const key of old.keys()) if (!rows.has(key)) this.ctx.storage.sql.exec('DELETE FROM state WHERE key = ?',key);
     });
+    return rows;
   }
   fetch(request) {
     return this.ctx.blockConcurrencyWhile(async () => {
-      const {state,rows} = this.load();
+      const {state,rows} = this.cached ?? this.load();
       const service = new Service(state, this.env.ADMIN_KEY);
-      const response = await service.fetch(request);
-      this.save(service.state,rows);
-      if (!await this.ctx.storage.getAlarm()) await this.ctx.storage.setAlarm(Date.now() + 60000);
-      return response;
+      try {
+        const response = await service.fetch(request);
+        const saved = this.save(service.state,rows);
+        if (!await this.ctx.storage.getAlarm()) await this.ctx.storage.setAlarm(Date.now() + 60000);
+        this.cached = {state:service.state,rows:saved};
+        return response;
+      } catch (error) { this.cached = null; throw error; }
     });
   }
   async alarm() {
     return this.ctx.blockConcurrencyWhile(async () => {
-      const {state,rows} = this.load();
+      const {state,rows} = this.cached ?? this.load();
       const service = new Service(state, this.env.ADMIN_KEY);
-      service.cleanup();
-      this.save(service.state,rows);
-      if (Object.keys(service.state.rooms).length) await this.ctx.storage.setAlarm(Date.now() + 60000);
+      try {
+        service.cleanup();
+        const saved = this.save(service.state,rows);
+        if (Object.keys(service.state.rooms).length) await this.ctx.storage.setAlarm(Date.now() + 60000);
+        this.cached = {state:service.state,rows:saved};
+      } catch (error) { this.cached = null; throw error; }
     });
   }
 }
