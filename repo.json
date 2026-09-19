@@ -12,10 +12,10 @@
                      "roleplay"
                  ],
         "RepoUrl":  "https://github.com/kaerlath/DiceMaster",
-        "AssemblyVersion":  "0.3.1.0",
-        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.1/DiceMaster-v0.3.1-plugin.zip",
-        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.1/DiceMaster-v0.3.1-plugin.zip",
-        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.1/DiceMaster-v0.3.1-plugin.zip",
-        "LastUpdate":  1789854400
+        "AssemblyVersion":  "0.3.2.0",
+        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.2/DiceMaster-v0.3.2-plugin.zip",
+        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.2/DiceMaster-v0.3.2-plugin.zip",
+        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.2/DiceMaster-v0.3.2-plugin.zip",
+        "LastUpdate":  1789855671
     }
 ]

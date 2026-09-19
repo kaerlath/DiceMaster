@@ -175,7 +175,13 @@ public sealed class RelayClient : IDisposable
                     if (!result.CanManage) gmToken = "";
                     updates.Enqueue(() =>
                     {
-                        Participants = result.Participants; CanManage = result.CanManage; gmExpires = result.GmExpires;
+                        // Storage row order can change as participants poll. Keep
+                        // the roster stable, including players sharing a name.
+                        Participants = result.Participants
+                            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                            .ThenBy(p => p.Id, StringComparer.Ordinal)
+                            .ToArray();
+                        CanManage = result.CanManage; gmExpires = result.GmExpires;
                         if (!CanManage) Modifiers.Clear();
                         foreach (var roll in result.Rolls) if (Valid(roll) && Rolls.All(r => r.Id != roll.Id)) Rolls.Add(roll);
                         if (Rolls.Count > 100) Rolls.RemoveRange(0, Rolls.Count - 100);

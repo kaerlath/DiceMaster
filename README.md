@@ -2,7 +2,7 @@
 
 Shared animated dice for Final Fantasy XIV / Dalamud. Roll together in relay rooms with eleven finishes, including marble, walnut, nebula, volcanic stone, frost and burgundy damask.
 
-**Early release: v0.3.1, Dalamud API 15.**
+**Early release: v0.3.2, Dalamud API 15.**
 
 ## Install
 
@@ -58,3 +58,4 @@ Animation is procedural rather than rigid-body physics; glass and frost use opaq
 ## Contributions and assets
 
 Please describe reproducible issues without credentials or personal logs. The six bundled material textures were generated for this project with OpenAI image generation and mapped onto code-generated geometry. No Dalamud/game binaries are included in this repository.
+
