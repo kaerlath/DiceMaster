@@ -2,7 +2,7 @@
 
 Shared animated dice for Final Fantasy XIV / Dalamud. Roll together in relay rooms with eleven finishes, including marble, walnut, nebula, volcanic stone, frost and burgundy damask.
 
-**Early release: v0.3.2, Dalamud API 15.**
+**Early release: v0.3.1, Dalamud API 15.**
 
 ## Install
 
@@ -26,13 +26,7 @@ Manual developer installation is also available from [Releases](https://github.c
 - Server-scheduled 2.4–5 second rolls. Everyone sees the roller's chosen skin, not their own preference applied to someone else's roll.
 - Five color finishes and six texture skins: Moonstone Marble, Elderwood, Astral Glass, Obsidian Relic, Frostbound and Crimson Velvet.
 - Shared room roster and recent roll history.
-- Individually issued GM access, private per-participant modifiers applied to **each die**, and server-enforced permissions. Creating a room never grants GM access.
 
-## GM authentication
-
-Obtain an individual code privately from the relay operator. Join a room, open Connection, enter it under **Server Authentication**, optionally check **Remember on this device**, and authenticate. The GM Controls tab appears only after server confirmation.
-
-The input field clears after use. Remembered credentials are encrypted for your Windows user using DPAPI in the plugin configuration directory, outside the plugin update directory. They are bound to the relay address. Joining a room after a reload requests a fresh authorized session. Sessions last 15 minutes; use Restore saved authentication when needed. Forget saved code removes the local saved copy; End authenticated session ends the current session. Never post access codes in issues or screenshots.
 
 ## Build and checks
 
@@ -51,11 +45,10 @@ See [relay operator setup](docs/RELAY.md) for self-hosting and [protocol](docs/P
 
 ## Current limits
 
-This is intended for small groups: 50 simultaneous rooms, 32 participants per room, 12-hour room lifetimes and 90-second membership leases. Display names are not verified FFXIV identities. The relay stores private room data and a bounded operator audit history. Natural rolls and modifiers are never sent to ordinary clients, although repeated outcomes can statistically reveal bias.
+This is intended for small groups: 50 simultaneous rooms, 32 participants per room, 12-hour room lifetimes and 90-second membership leases. Display names are not verified FFXIV identities.
 
 Animation is procedural rather than rigid-body physics; glass and frost use opaque textures and highlights, not true refraction. Timing uses approximate server-clock synchronization. Further in-game visual and network testing is welcome. Remembered authentication has been built but its Windows DPAPI round-trip could not be verified inside the development sandbox.
 
 ## Contributions and assets
 
 Please describe reproducible issues without credentials or personal logs. The six bundled material textures were generated for this project with OpenAI image generation and mapped onto code-generated geometry. No Dalamud/game binaries are included in this repository.
-
