@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { Authority } from '../src/worker.mjs';
+import { token } from '../src/dice.mjs';
+
+test('Worker storage persists rooms, permissions and audit atomically across instances',async()=>{
+  const db=new DatabaseSync(':memory:');
+  let alarm=null;
+  const ctx={
+    blockConcurrencyWhile:fn=>fn(),
+    storage:{
+      sql:{exec:(sql,...args)=>db.prepare(sql).all(...args)},
+      transactionSync:fn=>{db.exec('BEGIN');try{fn();db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}},
+      getAlarm:async()=>alarm,
+      setAlarm:async n=>{alarm=n;}
+    }
+  };
+  const env={ADMIN_KEY:token()};
+  let worker=new Authority(ctx,env);
+  async function call(path,body,bearer,gm) {
+    const headers={'Content-Type':'application/json'};
+    if(bearer)headers.Authorization=`Bearer ${bearer}`;
+    if(gm)headers['X-GM-Session']=gm;
+    const res=await worker.fetch(new Request(`https://relay.test/v1/${path}`,{method:'POST',headers,body:JSON.stringify(body)}));
+    return {status:res.status,body:await res.json()};
+  }
+  const person=(await call('create',{name:'Player'})).body;
+  const issued=(await call('admin/issue',{label:'Keeper'},env.ADMIN_KEY)).body;
+  const gm=(await call('auth',{room:person.room,credential:issued.credential},person.token)).body;
+  assert.equal((await call('gm/set',{room:person.room,participant:person.participant,value:2000},person.token,gm.token)).status,200);
+  worker=new Authority(ctx,env);
+  const roll=await call('roll',{room:person.room,count:3,sides:8,requestId:crypto.randomUUID()},person.token);
+  assert.equal(roll.body.total,24);
+  assert(alarm>0);
+  await call('admin/revoke',{id:issued.id},env.ADMIN_KEY);
+  worker=new Authority(ctx,env);
+  assert.equal((await call('gm/clear',{room:person.room},person.token,gm.token)).status,403);
+  const rows=db.prepare('SELECT value FROM state').all().map(r=>r.value).join('');
+  for(const secret of [person.token,gm.token,issued.credential])assert(!rows.includes(secret));
+  await call('leave',{room:person.room},person.token);
+  assert.equal(db.prepare("SELECT * FROM state WHERE key LIKE 'person|%' OR key LIKE 'room|%'").all().length,0);
+  db.close();
+});

@@ -1,0 +1,21 @@
+[
+    {
+        "Author":  "Kaerlath",
+        "Name":  "DiceMaster",
+        "InternalName":  "DiceMaster",
+        "Punchline":  "Shared animated dice for roleplay rooms.",
+        "Description":  "Roll polyhedral dice together in a dedicated Dice Window. Configure your relay, create or join a room, and use /dicemaster to open the controls.",
+        "ApplicableVersion":  "any",
+        "DalamudApiLevel":  15,
+        "Tags":  [
+                     "dice",
+                     "roleplay"
+                 ],
+        "RepoUrl":  "https://github.com/kaerlath/DiceMaster",
+        "AssemblyVersion":  "0.3.1.0",
+        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.1/DiceMaster-v0.3.1-plugin.zip",
+        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.1/DiceMaster-v0.3.1-plugin.zip",
+        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.3.1/DiceMaster-v0.3.1-plugin.zip",
+        "LastUpdate":  1789854328
+    }
+]

@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/.wrangler/
+**/.dev.vars*
+**/.env*
+*.dpapi
+*.log
+*.user
+deployment-status.json
+work/
+private/
+*Credential*.txt
+*operator-key*
+*primary-gm*

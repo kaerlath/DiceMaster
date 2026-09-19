@@ -1,0 +1,7 @@
+{
+  "name": "dicemaster-relay",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-09-18",
+  "durable_objects": { "bindings": [{ "name": "AUTHORITY", "class_name": "Authority" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Authority"] }]
+}
