@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.4.0</Version>
+    <Version>0.5.1</Version>
     <AssemblyName>DiceMaster</AssemblyName>
     <RootNamespace>DiceMaster</RootNamespace>
     <Nullable>enable</Nullable>
@@ -10,4 +10,6 @@
   <ItemGroup><Content Include="Assets\Skins\*.png" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
   <ItemGroup><PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" /></ItemGroup>
 </Project>
+
+
 

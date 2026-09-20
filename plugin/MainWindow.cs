@@ -28,6 +28,11 @@ public sealed class MainWindow : Window
     {
         Appearance.Heading("D I C E M A S T E R","A shared table. A little chance.");
         ImGui.TextColored(relay.Joined ? new Vector4(.45f,.83f,.65f,1) : Appearance.Muted,relay.Status);
+        if (relay.ConnectionPaused)
+        {
+            ImGui.TextWrapped(relay.PauseMessage);
+            if (!relay.UpdateRequired && ImGui.Button("Resume connection")) relay.ResumeConnection();
+        }
         if (!relay.CanManage) drafts.Clear();
         if (!ImGui.BeginTabBar("Workspace")) return;
         if (ImGui.BeginTabItem("Table")) { DrawTable(); ImGui.EndTabItem(); }
@@ -185,3 +190,4 @@ public sealed class MainWindow : Window
         relay.Run(()=>relay.Join(url,display,code,create,listed,title)); showDice();
     }
 }
+

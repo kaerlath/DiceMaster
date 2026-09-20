@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.WebSockets;
 using System.Text.Json;
 
 namespace DiceMaster;
@@ -13,13 +14,21 @@ public sealed class RelayClient : IDisposable
     private readonly HttpClient http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(8) };
     private readonly CancellationTokenSource stop = new();
     private readonly SemaphoreSlim gate = new(1);
+    private readonly NetworkBudget budget = new();
+    private long lastAction = -10000, lastBrowse = -10000;
+    public bool ConnectionPaused => budget.Paused;
+    public bool UpdateRequired => budget.UpdateRequired;
+    public string PauseMessage => budget.Message;
+    public void ResumeConnection() { if (budget.Resume()) Status = "Ready to reconnect. If not at a table, refresh or join again."; }
     private readonly ConcurrentQueue<Action> updates = new();
     private readonly JsonSerializerOptions json = new(JsonSerializerDefaults.Web);
     private string participantToken = "", gmToken = "";
-    private long sequence, gmExpires;
+    private long gmExpires;
     private long clockServer, clockStamp = Stopwatch.GetTimestamp();
     private volatile bool joined;
     private readonly Task pollTask;
+    private ClientWebSocket? liveSocket;
+    private void ResetStream() { try { liveSocket?.Abort(); } catch (ObjectDisposedException) { } }
     private readonly CredentialStore credentialStore;
     public bool HasSavedCredential => credentialStore.Exists;
     public string AuthenticationStatus { get; private set; } = "Not authenticated";
@@ -45,7 +54,8 @@ public sealed class RelayClient : IDisposable
     private void ClearPrivilege() { CanManage = false; Modifiers.Clear(); }
     public void Run(Func<Task> action)
     {
-        if (Busy) return;
+        if (Busy || Environment.TickCount64-lastAction<1000) return;
+        lastAction=Environment.TickCount64;
         Busy = true;
         _ = Execute(action);
     }
@@ -57,11 +67,12 @@ public sealed class RelayClient : IDisposable
             try { await action(); } finally { gate.Release(); }
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (NetworkPausedException) { updates.Enqueue(() => { Status = budget.Message; ClearPrivilege(); }); }
         catch (OperationCanceledException) { updates.Enqueue(() => Status = "The relay took too long to respond. Please retry."); }
         catch (ArgumentException e) { updates.Enqueue(() => Status = e.Message); }
         catch (HttpRequestException e)
         {
-            updates.Enqueue(() => { Status = e.StatusCode == HttpStatusCode.Forbidden ? "Authorization required or expired." : "Request failed. Check the relay and room connection."; ClearPrivilege(); });
+            updates.Enqueue(() => { Status = budget.Paused ? budget.Message : e.StatusCode == HttpStatusCode.Forbidden ? "Authorization required or expired." : "Request failed. Check the relay and room connection."; ClearPrivilege(); });
         }
         catch { updates.Enqueue(() => { Status = "Could not complete the request."; ClearPrivilege(); }); }
         finally { updates.Enqueue(() => Busy = false); }
@@ -71,11 +82,25 @@ public sealed class RelayClient : IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body, options:json) };
         if (participantToken.Length > 0) request.Headers.Authorization = new("Bearer", participantToken);
         if (gmToken.Length > 0) request.Headers.Add("X-GM-Session", gmToken);
-        using var response = await http.SendAsync(request, stop.Token);
+        using var response = await SendHttp(request);
         if (response.StatusCode == HttpStatusCode.Unauthorized) { joined = false; participantToken = gmToken = ""; }
         if (response.StatusCode == HttpStatusCode.Forbidden) gmToken = "";
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(json, stop.Token) ?? throw new InvalidDataException();
+    }
+    private async Task<HttpResponseMessage> SendHttp(HttpRequestMessage request)
+    {
+        request.Headers.TryAddWithoutValidation("X-DiceMaster-Protocol","2");
+        budget.Request();
+        try
+        {
+            var response=await http.SendAsync(request,stop.Token);
+            var retry=response.Headers.RetryAfter;
+            budget.Response((int)response.StatusCode,retry?.Delta ?? (retry?.Date is { } date ? date-DateTimeOffset.UtcNow : null));
+            return response;
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+        catch { budget.TransportFailure(); throw; }
     }
     private static Uri RelayOrigin(string endpoint)
     {
@@ -87,12 +112,14 @@ public sealed class RelayClient : IDisposable
     public async Task Browse(string endpoint)
     {
         if (joined) return;
+        if (Environment.TickCount64-lastBrowse<10000) return;
+        lastBrowse=Environment.TickCount64;
         updates.Enqueue(() => { PublicRooms = []; BrowserStatus = "Looking for tables…"; });
         try
         {
             // Browsing is anonymous; never send room tokens or GM authorization.
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(RelayOrigin(endpoint), "v1/rooms")) { Content = JsonContent.Create(new { }) };
-            using var response = await http.SendAsync(request, stop.Token);
+            using var response = await SendHttp(request);
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<RoomsReply>(json, stop.Token) ?? throw new InvalidDataException();
             updates.Enqueue(() => { PublicRooms = result.Rooms; BrowserStatus = result.Rooms.Length == 0 ? "No public tables yet. Create one below." : "Select Join beside a table."; });
@@ -104,7 +131,7 @@ public sealed class RelayClient : IDisposable
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Enter Your Display Name before joining a table.");
         // HttpClient.BaseAddress is immutable after first request; use absolute request paths via a new origin field.
         origin = RelayOrigin(endpoint);
-        participantToken = gmToken = ""; sequence = 0;
+        participantToken = gmToken = "";
         var start = Stopwatch.GetTimestamp();
         var result = await PostAt<JoinReply>(create ? "v1/create" : "v1/join", create ? new { name, listed, title } : (object)new { name, room = code.Trim().ToUpperInvariant() });
         Room = result.Room; ParticipantId = result.Participant; participantToken = result.Token;
@@ -123,7 +150,7 @@ public sealed class RelayClient : IDisposable
     public async Task Authenticate(string credential, bool remember = false)
     {
         var result = await PostAt<AuthReply>("v1/auth", new {room = Room, credential});
-        gmToken = result.Token;
+        gmToken = result.Token; ResetStream();
         updates.Enqueue(() => { CanManage = result.CanManage; gmExpires = result.Expires; AuthenticationStatus = "Authenticated"; Status = "Server authentication accepted"; });
         if (remember)
         {
@@ -154,7 +181,7 @@ public sealed class RelayClient : IDisposable
     }
     public async Task RollDice(int count, int sides, string skin)
     {
-        // If delivery is uncertain, poll recovers the accepted event. Never auto-submit a new request ID.
+        // If delivery is uncertain, the stream or reconnect snapshot recovers the accepted event. Never auto-submit a new request ID.
         await PostAt<Roll>("v1/roll", new {room = Room, count, sides, skin, requestId = Guid.NewGuid().ToString()});
     }
     public async Task SetModifier(string id, int value)
@@ -174,58 +201,101 @@ public sealed class RelayClient : IDisposable
     public async Task Logout()
     {
         try { await PostAt<JsonElement>("v1/gm/logout", new {room = Room}); }
-        finally { gmToken = ""; updates.Enqueue(()=> { ClearPrivilege(); AuthenticationStatus="Session ended"; }); }
+        finally { ResetStream(); gmToken = ""; updates.Enqueue(()=> { ClearPrivilege(); AuthenticationStatus="Session ended"; }); }
     }
     public async Task Leave()
     {
         try { await PostAt<JsonElement>("v1/leave", new {room = Room}); }
-        finally { joined = false; participantToken = gmToken = ""; updates.Enqueue(() => { Room = ""; Participants = []; Rolls.Clear(); ClearPrivilege(); Status = "Not connected"; }); }
+        finally { joined = false; ResetStream(); participantToken = gmToken = ""; updates.Enqueue(() => { Room = ""; Participants = []; Rolls.Clear(); ClearPrivilege(); Status = "Not connected"; }); }
+    }
+    private void ApplySnapshot(PollReply result, string session, string auth)
+    {
+        updates.Enqueue(() =>
+        {
+            if (!joined || participantToken != session || gmToken != auth) return;
+            Participants = result.Participants.OrderBy(p=>p.Name,StringComparer.OrdinalIgnoreCase).ThenBy(p=>p.Id,StringComparer.Ordinal).ToArray();
+            CanManage=result.CanManage; gmExpires=result.GmExpires;
+            if (!CanManage) Modifiers.Clear();
+            foreach (var roll in result.Rolls) if (Valid(roll) && Rolls.All(r=>r.Id!=roll.Id)) Rolls.Add(roll);
+            if (Rolls.Count>100) Rolls.RemoveRange(0,Rolls.Count-100);
+            Status="Connected · live updates";
+        });
     }
     private async Task PollLoop()
     {
-        var failures = 0;
+        var failures=0;
         while (!stop.IsCancellationRequested)
         {
+            string session="", auth="";
             try
             {
-                await Task.Delay(failures == 0 ? 1000 : Math.Min(8000, 500 * (1 << Math.Min(failures, 4))), stop.Token);
+                await Task.Delay(failures==0 ? 500 : Math.Min(60000,5000*(1<<Math.Min(failures-1,4)))+Random.Shared.Next(2000),stop.Token);
+                if (budget.Paused) continue;
+                using var socket=new ClientWebSocket();
                 await gate.WaitAsync(stop.Token);
                 try
                 {
                     if (!joined) continue;
-                    var start = Stopwatch.GetTimestamp();
-                    var result = await PostAt<PollReply>("v1/poll", new {room = Room, after = sequence});
-                    SetClock(result.ServerTime, start);
-                    sequence = result.Sequence; failures = 0;
-                    if (!result.CanManage) gmToken = "";
-                    updates.Enqueue(() =>
-                    {
-                        // Storage row order can change as participants poll. Keep
-                        // the roster stable, including players sharing a name.
-                        Participants = result.Participants
-                            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(p => p.Id, StringComparer.Ordinal)
-                            .ToArray();
-                        CanManage = result.CanManage; gmExpires = result.GmExpires;
-                        if (!CanManage) Modifiers.Clear();
-                        foreach (var roll in result.Rolls) if (Valid(roll) && Rolls.All(r => r.Id != roll.Id)) Rolls.Add(roll);
-                        if (Rolls.Count > 100) Rolls.RemoveRange(0, Rolls.Count - 100);
-                        Status = "Connected";
-                    });
+                    budget.Connect();
+                    session=participantToken; auth=gmToken;
+                    // One catch-up request on connect/reconnect validates the session and synchronizes time.
+                    var start=Stopwatch.GetTimestamp();
+                    var snapshot=await PostAt<PollReply>("v1/poll",new {room=Room,after=0});
+                    SetClock(snapshot.ServerTime,start);
+                    socket.Options.SetRequestHeader("Authorization","Bearer "+session);
+                    socket.Options.SetRequestHeader("X-DiceMaster-Protocol","2");
+                    if (auth.Length>0) socket.Options.SetRequestHeader("X-GM-Session",auth);
+                    socket.Options.CollectHttpResponseDetails=true;
+                    socket.Options.KeepAliveInterval=TimeSpan.FromSeconds(30);
+                    socket.Options.KeepAliveTimeout=TimeSpan.FromSeconds(20);
+                    var uri=new UriBuilder(new Uri(origin!,"v1/connect")) { Scheme="wss", Port=origin!.IsDefaultPort ? -1 : origin.Port, Query="room="+Uri.EscapeDataString(Room) };
+                    using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                    budget.Request();
+                    try { await socket.ConnectAsync(uri.Uri,timeout.Token); }
+                    catch { budget.Response((int)socket.HttpStatusCode); budget.TransportFailure(); throw; }
+                    liveSocket=socket;
+                    ApplySnapshot(snapshot,session,auth);
                 }
                 finally { gate.Release(); }
+                var buffer=new byte[8192];
+                while (joined && participantToken==session && gmToken==auth && socket.State==WebSocketState.Open)
+                {
+                    using var message=new MemoryStream();
+                    WebSocketReceiveResult part;
+                    do
+                    {
+                        part=await socket.ReceiveAsync(new ArraySegment<byte>(buffer),stop.Token);
+                        if (part.MessageType==WebSocketMessageType.Close) throw new IOException("Stream closed");
+                        if (part.MessageType!=WebSocketMessageType.Text || message.Length+part.Count>524288) throw new InvalidDataException();
+                        message.Write(buffer,0,part.Count);
+                    } while (!part.EndOfMessage);
+                    var result=JsonSerializer.Deserialize<PollReply>(message.ToArray(),json) ?? throw new InvalidDataException();
+                    ApplySnapshot(result,session,auth);
+                    // A brief successful snapshot must not reset the reconnect budget.
+                }
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
-            catch (HttpRequestException e) when (e.StatusCode is { } status && (int)status >= 500)
-            { failures++; updates.Enqueue(() => { ClearPrivilege(); Status = $"Relay unavailable (HTTP {(int)status}); retrying…"; }); }
-            catch { failures++; updates.Enqueue(() => { ClearPrivilege(); Status = joined ? "Connection interrupted; retrying…" : "Session ended. Join the room again."; }); }
+            catch
+            {
+                if (session==participantToken && auth==gmToken)
+                {
+                    failures++;
+                    updates.Enqueue(()=> { if (session!=participantToken || auth!=gmToken) return; ClearPrivilege(); Status=budget.Paused ? budget.Message : joined ? "Live connection interrupted; reconnecting…" : "Session ended. Join a table again."; });
+                }
+            }
+            finally { liveSocket=null; }
         }
     }
     public static bool Valid(Roll r) => r.Count is >= 1 and <= 20 && new[] {4,6,8,10,12,20,100}.Contains(r.Sides) && r.Faces.Length == r.Count && r.Faces.All(x => x >= 1 && x <= r.Sides) && r.Total == r.Faces.Sum() && r.DurationMs is >= 500 and <= 10000;
     public void Dispose()
     {
-        stop.Cancel(); http.Dispose(); participantToken = gmToken = "";
+        stop.Cancel(); ResetStream(); http.Dispose(); participantToken = gmToken = "";
         // Cancellation completes both the polling loop and any queued action without touching UI.
         _ = pollTask.ContinueWith(_ => stop.Dispose(), TaskScheduler.Default);
     }
 }
+
+
+
+

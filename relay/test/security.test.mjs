@@ -185,3 +185,71 @@ test('public directory validates input and limits anonymous browsing', async () 
   h.advance(60001);
   assert.equal((await h.call('rooms',{})).status,200);
 });
+
+ test('socket identity is server-authenticated and capability is checked on every snapshot',async()=>{
+  const {socketIdentity,socketSnapshot}=await import('../src/sockets.mjs');
+  const h=harness(), p=await h.create(), other=await h.create(), gm=await h.authenticate(p);
+  // Harness clock is injected; align expiry for the handshake's real clock.
+  h.state().rooms[p.room].expires=Date.now()+60000;
+  const req=(room,token)=>new Request(`https://relay.test/v1/connect?room=${room}`,{headers:{Authorization:`Bearer ${token}`,'X-GM-Session':gm.token}});
+  assert.equal(await socketIdentity(h.state(),req(p.room,'x')),null);
+  assert.equal(await socketIdentity(h.state(),req(other.room,p.token)),null);
+  const identity=await socketIdentity(h.state(),req(p.room,p.token));
+  assert(identity && !JSON.stringify(identity).includes(gm.token));
+  assert.equal(socketSnapshot(h.state(),identity,1000000).canManage,true);
+  const ordinary={...identity,gmDigest:''};
+  assert.equal(socketSnapshot(h.state(),ordinary,1000000).canManage,false);
+  assert(!JSON.stringify(socketSnapshot(h.state(),ordinary,1000000)).includes('modifiers'));
+  await h.call('admin/revoke',{id:gm.id},null,null,true);
+  assert.equal(socketSnapshot(h.state(),identity,1000000).canManage,false);
+});
+
+test('connected sockets retain membership without heartbeat writes, but room expiry still applies',async()=>{
+  const h=harness(), p=await h.create();
+  h.advance(120000);
+  const service=new Service(h.state(),token(),()=>1120000,new Set([p.participant]));
+  service.cleanup();
+  assert(service.state.rooms[p.room].people[p.participant]);
+  assert.equal(service.state.rooms[p.room].people[p.participant].seen,1000000);
+  service.connected.clear(); service.cleanup();
+  assert.equal(service.state.rooms[p.room],undefined);
+});
+
+test('socket broadcasts are room-scoped, deduplicated, and revoke capability immediately',async()=>{
+  const {Authority}=await import('../src/worker.mjs');
+  const h=harness(), p=await h.create(), other=await h.create();
+  const gm=await h.authenticate(p);
+  const {hash}=await import('../src/dice.mjs');
+  for(const room of Object.values(h.state().rooms))room.expires=Date.now()+60000;
+  for(const session of Object.values(h.state().sessions))session.expires=Date.now()+60000;
+  const make=identity=>({deserializeAttachment:()=>identity,messages:[],send(s){this.messages.push(JSON.parse(s));},close(){this.closed=true;}});
+  const a=make({room:p.room,id:p.participant,gmDigest:await hash(gm.token)});
+  const b=make({room:other.room,id:other.participant,gmDigest:''});
+  const authority=new Authority({storage:{sql:{exec(){}}},getWebSockets:()=>[a,b]},{});
+  authority.broadcast(h.state()); authority.broadcast(h.state());
+  assert.equal(a.messages.length,1); assert.equal(b.messages.length,1);
+  assert.equal(a.messages[0].canManage,true);
+  assert.equal(b.messages[0].participants[0].id,other.participant);
+  await h.call('admin/revoke',{id:gm.id},null,null,true);
+  authority.broadcast(h.state());
+  assert.equal(a.messages.length,2); assert.equal(a.messages[1].canManage,false);
+  assert.equal(b.messages.length,1);
+  delete h.state().rooms[p.room]; authority.broadcast(h.state()); assert(a.closed);
+});
+
+test('operator pause rejects traffic before accessing the shared Durable Object',async()=>{
+  const worker=(await import('../src/worker.mjs')).default;
+  const response=await worker.fetch(new Request('https://relay.test/v1/poll',{method:'POST',headers:{'X-DiceMaster-Protocol':'2'}}),{RELAY_PAUSED:'true',AUTHORITY:{idFromName(){throw new Error('Storage must not be accessed');}}});
+  assert.equal(response.status,503);assert.equal(response.headers.get('Retry-After'),'300');
+});
+
+
+test('legacy clients are rejected before Durable Object storage or websocket upgrade',async()=>{
+  const worker=(await import('../src/worker.mjs')).default;
+  for(const path of ['rooms','create','join','poll','connect','roll','auth','gm/set']) {
+    for(const version of ['', '1','3']) {
+      const response=await worker.fetch(new Request(`https://relay.test/v1/${path}`,{headers:{'X-DiceMaster-Protocol':version}}),{AUTHORITY:{idFromName(){throw new Error('Old clients must not reach storage');}}});
+      assert.equal(response.status,426);
+    }
+  }
+});

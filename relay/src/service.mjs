@@ -9,7 +9,8 @@ const SESSION = 15 * 60000, LEASE = 90000, ROOM = 12 * 3600000;
 export const SKINS = ['aether-teal','royal-amethyst','obsidian-gold','ivory-brass','ember-copper','moonstone-marble','elderwood','astral-glass','obsidian-relic','frostbound','crimson-velvet','emerald-marble','rose-quartz','sapphire-marble','amethyst-ice','jade-frost','honey-amber','rainbow-opal','prismatic-night'];
 
 export class Service {
-  constructor(state, adminKey, now = () => Date.now()) {
+  constructor(state, adminKey, now = () => Date.now(), connected = new Set()) {
+    this.connected = connected;
     this.state = state ?? {rooms:{}, credentials:{}, sessions:{}, audit:[], rates:{}};
     this.adminKey = adminKey;
     this.now = now;
@@ -21,7 +22,7 @@ export class Service {
   cleanup() {
     const now = this.now();
     for (const [code, room] of Object.entries(this.state.rooms)) {
-      for (const [id, p] of Object.entries(room.people)) if (p.seen + LEASE < now) {
+      for (const [id, p] of Object.entries(room.people)) if (p.seen + LEASE < now && !this.connected.has(id)) {
         delete room.people[id]; delete room.modifiers[id];
       }
       if (room.expires <= now || !Object.keys(room.people).length) {
