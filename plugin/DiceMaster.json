@@ -6,5 +6,9 @@
   "Description": "Roll polyhedral dice together in a dedicated Dice Window. Configure your relay, create or join a room, and use /dicemaster to open the controls.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
-  "Tags": ["dice", "roleplay"]
+  "Tags": [
+    "dice",
+    "roleplay"
+  ],
+  "IconUrl": "https://raw.githubusercontent.com/kaerlath/DiceMaster/main/images/icon.png"
 }

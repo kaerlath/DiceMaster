@@ -11,11 +11,12 @@
                      "dice",
                      "roleplay"
                  ],
+        "IconUrl":  "https://raw.githubusercontent.com/kaerlath/DiceMaster/main/images/icon.png",
         "RepoUrl":  "https://github.com/kaerlath/DiceMaster",
-        "AssemblyVersion":  "0.5.1.0",
-        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.1/DiceMaster-v0.5.1-plugin.zip",
-        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.1/DiceMaster-v0.5.1-plugin.zip",
-        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.1/DiceMaster-v0.5.1-plugin.zip",
-        "LastUpdate":  1789882067
+        "AssemblyVersion":  "0.5.2.0",
+        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.2/DiceMaster-v0.5.2-plugin.zip",
+        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.2/DiceMaster-v0.5.2-plugin.zip",
+        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.2/DiceMaster-v0.5.2-plugin.zip",
+        "LastUpdate":  1789945300
     }
 ]

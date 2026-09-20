@@ -37,6 +37,7 @@ public sealed class MainWindow : Window
         if (!ImGui.BeginTabBar("Workspace")) return;
         if (ImGui.BeginTabItem("Table")) { DrawTable(); ImGui.EndTabItem(); }
         if (ImGui.BeginTabItem("Appearance")) { DrawAppearance(); ImGui.EndTabItem(); }
+        if (ImGui.BeginTabItem("Table Style")) { DrawTableStyle(); ImGui.EndTabItem(); }
         if (ImGui.BeginTabItem("Connection")) { DrawConnection(); ImGui.EndTabItem(); }
         // No GM tab or placeholder is rendered without server-confirmed capability.
         if (relay.CanManage && ImGui.BeginTabItem("GM Controls")) { DrawGm(); ImGui.EndTabItem(); }
@@ -109,6 +110,22 @@ public sealed class MainWindow : Window
             }
         }
         ImGui.EndDisabled();
+    }
+    private void DrawTableStyle()
+    {
+        ImGui.Spacing();
+        Appearance.Heading("Your dice table", "Only you see this setting. Everyone still sees the roller's dice.");
+        if (ImGui.BeginCombo("Table finish",TableFinish.Selected(config).Name))
+        {
+            foreach (var finish in TableFinish.All)
+                if (ImGui.Selectable(finish.Name,finish.Id==config.TableFinishId)) { config.TableFinishId=finish.Id; save(); }
+            ImGui.EndCombo();
+        }
+        bool decoration=config.TrayDecoration;
+        if (ImGui.Checkbox("Decorative edge inlay",ref decoration)) { config.TrayDecoration=decoration; save(); }
+        DiceWindow.Preview(config);
+        ImGui.TextWrapped("Preview with your selected dice. Textures stay subtle and decorations stay at the edges.");
+        if (ImGui.Button("Open Dice Window",new Vector2(-1,38))) showDice();
     }
     private void DrawAppearance()
     {

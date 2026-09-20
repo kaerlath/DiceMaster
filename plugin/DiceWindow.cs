@@ -23,14 +23,15 @@ public sealed class DiceWindow : Window
         var origin = ImGui.GetCursorScreenPos();
         var area = new Vector2(Math.Max(280,ImGui.GetContentRegionAvail().X),Math.Clamp(ImGui.GetContentRegionAvail().Y*.65f,240,700));
         var draw = ImGui.GetWindowDrawList();
-        DrawTray(draw,origin,area,skin,config.TrayDecoration);
+        var finish=TableFinish.Selected(config);
+        TableFinish.Draw(draw,origin,area,finish,config.TrayDecoration);
         draw.PushClipRect(origin,origin+area,true);
         if (roll == null)
         {
             var mesh=DieMesh.For(20);
             DrawDie(draw,mesh,mesh.Landing(19),origin+area/2,Math.Min(area.X,area.Y)*.28f,false,false,skin);
             var note="d20 / skin preview";
-            draw.AddText(origin+new Vector2(area.X/2,area.Y-34)-new Vector2(ImGui.CalcTextSize(note).X/2,0),DiceSkin.Color(skin.Edge),note);
+            draw.AddText(origin+new Vector2(area.X/2,area.Y-34)-new Vector2(ImGui.CalcTextSize(note).X/2,0),DiceSkin.Color(finish.Text),note);
         }
         if (roll != null)
         {
@@ -88,27 +89,17 @@ public sealed class DiceWindow : Window
             ImGui.EndTable();
         }
     }
-    private static void DrawTray(ImDrawListPtr draw,Vector2 origin,Vector2 area,DiceSkin skin,bool decorated)
+    internal static void Preview(Configuration config)
     {
-        draw.AddRectFilled(origin,origin+area,DiceSkin.Color(skin.Felt*.45f),14);
-        draw.AddRectFilled(origin+new Vector2(8),origin+area-new Vector2(8),DiceSkin.Color(skin.Felt),10);
-        draw.AddRect(origin+new Vector2(6),origin+area-new Vector2(6),DiceSkin.Color(skin.Edge,.7f),12,ImDrawFlags.None,2);
-        draw.AddRect(origin+new Vector2(14),origin+area-new Vector2(14),DiceSkin.Color(skin.Edge,.18f),7);
-        if (!decorated) return;
-        var center=origin+area/2; var radius=Math.Min(area.X,area.Y)*.36f;
-        draw.AddCircle(center,radius,DiceSkin.Color(skin.Edge,.12f),80,1);
-        draw.AddCircle(center,radius*.91f,DiceSkin.Color(skin.Edge,.08f),80,1);
-        for (var i=0;i<12;i++)
-        {
-            var angle=i*MathF.Tau/12;
-            var direction=new Vector2(MathF.Cos(angle),MathF.Sin(angle));
-            draw.AddLine(center+direction*radius*.94f,center+direction*radius,DiceSkin.Color(skin.Edge,.25f),2);
-        }
-        foreach (var x in new[]{24f,area.X-24}) foreach (var y in new[]{24f,area.Y-24})
-        {
-            var p=origin+new Vector2(x,y); var ink=DiceSkin.Color(skin.Edge,.6f);
-            draw.AddQuadFilled(p+new Vector2(0,-4),p+new Vector2(4,0),p+new Vector2(0,4),p+new Vector2(-4,0),ink);
-        }
+        var area=new Vector2(Math.Max(280,ImGui.GetContentRegionAvail().X),220);
+        var origin=ImGui.GetCursorScreenPos();
+        var draw=ImGui.GetWindowDrawList();
+        var finish=TableFinish.Selected(config);
+        TableFinish.Draw(draw,origin,area,finish,config.TrayDecoration);
+        draw.PushClipRect(origin,origin+area,true);
+        var mesh=DieMesh.For(20);
+        DrawDie(draw,mesh,mesh.Landing(19),origin+area/2,72,false,false,DiceSkin.Selected(config));
+        draw.PopClipRect();ImGui.Dummy(area);
     }
     private static void DrawDie(ImDrawListPtr draw,DieMesh mesh,Quaternion rotation,Vector2 center,float radius,bool tens,bool zeroBased,DiceSkin skin)
     {
@@ -142,6 +133,7 @@ public sealed class DiceWindow : Window
             var faceCenter=projected.Aggregate(Vector2.Zero,(sum,v)=>sum+v)/projected.Length;
             for (var i=0;i<projected.Length;i++)
             {
+                draw.AddLine(projected[i],projected[(i+1)%projected.Length],DiceSkin.Color(new Vector3(.015f),.85f),3.4f);
                 draw.AddLine(projected[i],projected[(i+1)%projected.Length],DiceSkin.Color(skin.Edge),1.4f);
                 draw.AddLine(Vector2.Lerp(projected[i],faceCenter,.06f),Vector2.Lerp(projected[(i+1)%projected.Length],faceCenter,.06f),DiceSkin.Color(skin.Edge,.22f),1);
             }
@@ -152,9 +144,12 @@ public sealed class DiceWindow : Window
                 var label = tens ? (value*10).ToString("00") : value.ToString();
                 var fontSize=Math.Clamp(radius*.28f*normal.Z,9,30);
                 var size=ImGui.CalcTextSize(label)*(fontSize/ImGui.GetFontSize());
-                draw.AddText(ImGui.GetFont(),fontSize,p-size/2+new Vector2(0,1),DiceSkin.Color(skin.Felt,.6f),label);
+                var outline=Vector3.Dot(skin.Ink,new Vector3(.2126f,.7152f,.0722f))>.5f ? Vector3.Zero : Vector3.One;
+                foreach(var offset in new[]{new Vector2(-1,0),new Vector2(1,0),new Vector2(0,-1),new Vector2(0,1)})
+                    draw.AddText(ImGui.GetFont(),fontSize,p-size/2+offset,DiceSkin.Color(outline,.85f),label);
                 draw.AddText(ImGui.GetFont(),fontSize,p-size/2,DiceSkin.Color(skin.Ink),label);
             }
         }
     }
 }
+
