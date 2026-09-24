@@ -9,6 +9,8 @@ public sealed class MainWindow : Window
     private readonly Configuration config;
     private readonly RelayClient relay;
     private readonly Action save, showDice;
+    private readonly DiceWindow dice;
+    private bool selectTable, previewInAppearance;
     private string endpoint, name, room = "", credential = "";
     private int count = 1, selected = 5;
     private bool rememberAuthentication;
@@ -16,14 +18,15 @@ public sealed class MainWindow : Window
     private string tableTitle = "", browserEndpoint = "";
     private readonly int[] sides = [4,6,8,10,12,20,100];
     private readonly Dictionary<string,int> drafts = [];
-    public MainWindow(Configuration config, RelayClient relay, Action save, Action showDice) : base("DiceMaster")
+    public MainWindow(Configuration config, RelayClient relay, Action save, Action showDice, DiceWindow dice) : base("DiceMaster")
     {
-        this.config=config; this.relay=relay; this.save=save; this.showDice=showDice;
+        this.config=config; this.relay=relay; this.save=save; this.showDice=showDice; this.dice=dice;
         endpoint=config.RelayUrl; name=config.DisplayName;
         Size=new Vector2(610,660); SizeCondition=ImGuiCond.FirstUseEver;
         SizeConstraints=new WindowSizeConstraints { MinimumSize=new Vector2(540,460), MaximumSize=new Vector2(1200,1200) };
     }
     public override void OnClose() { credential=""; drafts.Clear(); }
+    public void ShowTable() { IsOpen=true; selectTable=true; }
     public override void Draw()
     {
         Appearance.Heading("D I C E M A S T E R","A shared table. A little chance.");
@@ -34,8 +37,16 @@ public sealed class MainWindow : Window
             if (!relay.UpdateRequired && ImGui.Button("Resume connection")) relay.ResumeConnection();
         }
         if (!relay.CanManage) drafts.Clear();
+        var layout=config.SingleWindow ? 1 : 0;
+        ImGui.SetNextItemWidth(190);
+        if (ImGui.Combo("Window layout",ref layout,"Split windows\0Single window\0"))
+        {
+            config.SingleWindow=layout==1; save();
+            dice.IsOpen=!config.SingleWindow;
+            selectTable=true;
+        }
         if (!ImGui.BeginTabBar("Workspace")) return;
-        if (ImGui.BeginTabItem("Table")) { DrawTable(); ImGui.EndTabItem(); }
+        if (ImGui.BeginTabItem("Table",selectTable ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None)) { selectTable=false; DrawTable(); ImGui.EndTabItem(); }
         if (ImGui.BeginTabItem("Appearance")) { DrawAppearance(); ImGui.EndTabItem(); }
         if (ImGui.BeginTabItem("Table Style")) { DrawTableStyle(); ImGui.EndTabItem(); }
         if (ImGui.BeginTabItem("Connection")) { DrawConnection(); ImGui.EndTabItem(); }
@@ -100,10 +111,20 @@ public sealed class MainWindow : Window
             ImGui.SetNextItemWidth(130); ImGui.InputInt("Quantity",ref count); count=Math.Clamp(count,1,20);
             if (ImGui.Button($"ROLL {count}d{sides[selected]}",new Vector2(-1,50)))
             { var n=count; var s=sides[selected]; var skin=DiceSkin.Selected(config).Id; showDice(); relay.Run(()=>relay.RollDice(n,s,skin)); }
-            if (ImGui.Button("Open Dice Window",new Vector2(-1,34))) showDice();
+            if (config.SingleWindow)
+            {
+                // Keep animation/history fully visible while a roll request is in flight.
+                ImGui.EndDisabled();
+                ImGui.BeginChild("embedded-dice",new Vector2(0,Math.Clamp(ImGui.GetContentRegionAvail().Y-75,260,650)),true);
+                dice.DrawContents(true);
+                ImGui.EndChild();
+                ImGui.BeginDisabled(relay.Busy);
+            }
+            else if (ImGui.Button("Open Dice Window",new Vector2(-1,34))) showDice();
             ImGui.Spacing(); ImGui.Separator(); ImGui.Spacing();
-            ImGui.TextColored(Appearance.Muted,$"AT THE TABLE  /  {relay.Participants.Length}");
-            foreach (var p in relay.Participants)
+            var rosterOpen=!config.SingleWindow || ImGui.CollapsingHeader($"At the table ({relay.Participants.Length})");
+            if (!config.SingleWindow) ImGui.TextColored(Appearance.Muted,$"AT THE TABLE  /  {relay.Participants.Length}");
+            if (rosterOpen) foreach (var p in relay.Participants)
             {
                 ImGui.Bullet(); ImGui.SameLine(); ImGui.TextUnformatted(p.Name);
                 if (p.Id==relay.ParticipantId) { ImGui.SameLine(); ImGui.TextColored(Appearance.Muted,"you"); }
@@ -125,7 +146,7 @@ public sealed class MainWindow : Window
         if (ImGui.Checkbox("Decorative edge inlay",ref decoration)) { config.TrayDecoration=decoration; save(); }
         DiceWindow.Preview(config);
         ImGui.TextWrapped("Preview with your selected dice. Textures stay subtle and decorations stay at the edges.");
-        if (ImGui.Button("Open Dice Window",new Vector2(-1,38))) showDice();
+        if (ImGui.Button(config.SingleWindow ? "Return to table" : "Open Dice Window",new Vector2(-1,38))) showDice();
     }
     private void DrawAppearance()
     {
@@ -144,7 +165,8 @@ public sealed class MainWindow : Window
         ImGui.EndChild();
         bool decoration=config.TrayDecoration;
         if (ImGui.Checkbox("Decorative tray inlay",ref decoration)) { config.TrayDecoration=decoration; save(); }
-        if (ImGui.Button("Preview in Dice Window",new Vector2(-1,38))) showDice();
+        if (ImGui.Button(config.SingleWindow ? "View table preview" : "Preview in Dice Window",new Vector2(-1,38))) { if (config.SingleWindow) previewInAppearance=true; else showDice(); }
+        if (previewInAppearance && config.SingleWindow) DiceWindow.Preview(config);
         ImGui.TextWrapped("Your selection is saved for future rolls. Each player's dice keep their own finish.");
     }
     private void DrawConnection()

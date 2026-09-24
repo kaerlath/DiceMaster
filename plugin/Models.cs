@@ -12,6 +12,7 @@ public sealed class Configuration : IPluginConfiguration
     public int Skin { get; set; }
     public string TableFinishId { get; set; } = "midnight-velvet";
     public bool TrayDecoration { get; set; } = true;
+    public bool SingleWindow { get; set; }
     // No credentials, tokens or modifiers in configuration. Optional remembered
     // credentials use a separate Windows-encrypted, relay-bound store.
 }

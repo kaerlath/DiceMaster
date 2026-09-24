@@ -5,7 +5,7 @@ class Fault extends Error { constructor(status) { super(); this.status = status;
 const need = (ok, status = 400) => { if (!ok) throw new Fault(status); };
 const exact = (body, keys) => need(body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(k => keys.includes(k)) && keys.every(k => Object.hasOwn(body, k)));
 const validToken = s => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
-const SESSION = 15 * 60000, LEASE = 90000, ROOM = 12 * 3600000;
+const SESSION = 15 * 60000, LEASE = 10 * 60000;
 export const SKINS = ['aether-teal','royal-amethyst','obsidian-gold','ivory-brass','ember-copper','moonstone-marble','elderwood','astral-glass','obsidian-relic','frostbound','crimson-velvet','emerald-marble','rose-quartz','sapphire-marble','amethyst-ice','jade-frost','honey-amber','rainbow-opal','prismatic-night'];
 
 export class Service {
@@ -22,15 +22,27 @@ export class Service {
   cleanup() {
     const now = this.now();
     for (const [code, room] of Object.entries(this.state.rooms)) {
-      for (const [id, p] of Object.entries(room.people)) if (p.seen + LEASE < now && !this.connected.has(id)) {
-        delete room.people[id]; delete room.modifiers[id];
+      let removed = 0;
+      for (const [id, p] of Object.entries(room.people)) {
+        const checkpoint = room.socketPresence?.ids.includes(id) ? room.socketPresence.at : 0;
+        if (Math.max(p.seen,checkpoint) + LEASE < now && !this.connected.has(id)) {
+          delete room.people[id]; delete room.modifiers[id]; removed++;
+        }
       }
-      if (room.expires <= now || !Object.keys(room.people).length) {
-        delete this.state.rooms[code]; this.audit('room-expired', {room:code});
+      if (removed) this.audit('memberships-expired', {room:code, count:removed});
+      if (!Object.keys(room.people).length) {
+        delete this.state.rooms[code]; this.audit('room-expired', {room:code, reason:'no-participants'});
       }
     }
     for (const [key, s] of Object.entries(this.state.sessions)) if (s.expires <= now || !this.state.rooms[s.room]?.people[s.person]) delete this.state.sessions[key];
     for (const [key, r] of Object.entries(this.state.rates)) if (r.until <= now) delete this.state.rates[key];
+  }
+  checkpointPresence() {
+    // One room-row checkpoint per existing minute alarm, not per client poll.
+    for (const room of Object.values(this.state.rooms)) {
+      const ids=Object.keys(room.people).filter(id=>this.connected.has(id)).sort();
+      if (ids.length) room.socketPresence={at:this.now(),ids};
+    }
   }
   rate(key, limit, ms) {
     const r = this.state.rates[key] ??= {count:0, until:this.now() + ms};
@@ -93,7 +105,7 @@ export class Service {
         if (path.endsWith('create')) {
           need(Object.keys(this.state.rooms).length < 50, 503);
           do { code = Array.from({length:10}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[randomInt(31)]).join(''); } while (Object.hasOwn(this.state.rooms, code));
-          room = this.state.rooms[code] = {listed:options ? body.listed : false, title:options ? body.title.trim() : 'Dice table', people:{}, modifiers:{}, rolls:[], seq:0, next:0, expires:this.now()+ROOM};
+          room = this.state.rooms[code] = {listed:options ? body.listed : false, title:options ? body.title.trim() : 'Dice table', people:{}, modifiers:{}, rolls:[], seq:0, next:0, createdAt:this.now()};
         } else { need(typeof code === 'string' && /^[A-Z2-9]{10}$/.test(code)); room = this.state.rooms[code]; need(room, 404); }
         need(Object.keys(room.people).length < 32, 409);
         const id = crypto.randomUUID(), secret = token();
@@ -183,3 +195,4 @@ export class Service {
   }
 }
 function exactRoom(body) { need(body && typeof body === 'object' && typeof body.room === 'string' && /^[A-Z2-9]{10}$/.test(body.room)); }
+

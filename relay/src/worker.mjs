@@ -69,6 +69,8 @@ export class Authority {
           const identity = await socketIdentity(state,request);
           if (!identity) return reply(401,{error:'Session expired'});
           service.rate(`socket:${identity.id}`,20,60000);
+          state.rooms[identity.room].people[identity.id].seen=Date.now();
+          service.audit('socket-connected',{room:identity.room});
           const saved=this.save(state,rows);
           const [client,server]=Object.values(new WebSocketPair());
           for (const ws of this.sockets()) if (ws.deserializeAttachment()?.id===identity.id) ws.close(4000,'Connection replaced');
@@ -92,6 +94,7 @@ export class Authority {
       const {state,rows} = this.cached ?? this.load();
       const service = new Service(state, this.env.ADMIN_KEY, Date.now, this.connected());
       try {
+        service.checkpointPresence();
         service.cleanup();
         const saved = this.save(service.state,rows);
         if (Object.keys(service.state.rooms).length) await this.ctx.storage.setAlarm(Date.now() + 60000);
@@ -115,14 +118,15 @@ export class Authority {
     }
   }
   webSocketMessage(ws) { ws.close(1008,'Use HTTPS for commands'); }
-  webSocketClose(ws) { return this.disconnected(ws); }
-  webSocketError(ws) { try { ws.close(1011,'Reconnect'); } catch {} return this.disconnected(ws); }
-  disconnected(ws) {
+  webSocketClose(ws,code) { return this.disconnected(ws,code,'close'); }
+  webSocketError(ws) { try { ws.close(1011,'Reconnect'); } catch {} return this.disconnected(ws,1011,'error'); }
+  disconnected(ws,code,kind) {
     return this.ctx.blockConcurrencyWhile(async()=>{
       const identity=ws.deserializeAttachment();
       const {state,rows}=this.cached ?? this.load();
       const person=state.rooms[identity?.room]?.people[identity?.id];
       if (person) person.seen=Date.now(); // bounded grace for reconnecting the same participant
+      if (person) new Service(state,this.env.ADMIN_KEY).audit('socket-disconnected',{room:identity.room,code:Number.isInteger(code)?code:0,kind});
       try { this.cached={state,rows:this.save(state,rows)}; }
       catch(error) { this.cached=null; throw error; }
     });

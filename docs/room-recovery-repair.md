@@ -1,0 +1,9 @@
+# Room recovery repair (2026-09-22)
+
+The exported audit for room K6G63B8XDH records first join at 20:08:18, last roll at 20:58:14, and deletion at 21:02:02, America/Denver. Its 54-minute lifetime rules out the old 12-hour expiration for this incident. The old room-expired audit label covered both deadline and empty-room deletion. Socket-close events were not logged, so the original disconnect trigger cannot be established from this report; it must not be presented as confirmed infrastructure failure.
+
+Changes: remove the unconditional room-age deadline from cleanup and socket authentication/snapshots (including old persisted rooms); increase disconnected membership grace from 90 seconds to ten minutes; checkpoint live socket participant IDs/timestamp once per active room on the existing minute alarm, preserving recovery after process loss without close callbacks; record socket open/close codes and membership expiry counts in server-only audit. Explicit Leave still removes that participant immediately. All-empty rooms are still deleted. GM session expiry and revocation remain unchanged. Room modifiers remain private and are removed with membership/room cleanup.
+
+The checkpoint adds one changed room row per active room per minute, plus existing alarm/storage overhead, independent of participant count. No client polling or additional client heartbeat requests are introduced. This is bounded recovery, not a guarantee against outages longer than ten minutes or paused client reconnects.
+
+Validation: all 23 service/security/SQLite adapter tests pass, including old 12-hour room data and a real SQLite reload after simulated simultaneous socket loss without close callbacks. No live deployment or stress traffic was sent during this investigation. Existing Update-Relay.ps1 performs the live stream smoke check after deployment. No plugin update required.

@@ -70,7 +70,31 @@ test('idle polling avoids repeated disk reads and writes while leases remain dur
   assert.equal(reads,0,'live instance should not reload the database for every poll');
   worker=new Authority(ctx,env);
   assert.equal((await call('rooms',{})).rooms[0].participants,4);
-  now+=90001; await worker.alarm();
+  now+=600001; await worker.alarm();
   assert.deepEqual((await call('rooms',{})).rooms,[]);
+  db.close();
+});
+
+
+test('alarm checkpoints idle sockets to SQLite before a process restart without close callbacks',async t=>{
+  let now=1000000,alarm=null; t.mock.method(Date,'now',()=>now);
+  const db=new DatabaseSync(':memory:'); let sockets=[];
+  const ctx={blockConcurrencyWhile:fn=>fn(),getWebSockets:()=>sockets,storage:{
+    sql:{exec:(sql,...args)=>db.prepare(sql).all(...args)},
+    transactionSync:fn=>{db.exec('BEGIN');try{fn();db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}},
+    getAlarm:async()=>alarm,setAlarm:async n=>{alarm=n;}
+  }};
+  const env={ADMIN_KEY:token()};let worker=new Authority(ctx,env);
+  const created=await worker.fetch(new Request('https://relay.test/v1/create',{method:'POST',body:JSON.stringify({name:'Player'})}));
+  const p=await created.json();
+  sockets=[{readyState:1,deserializeAttachment:()=>({room:p.room,id:p.participant,gmDigest:''}),send(){},close(){}}];
+  now+=2*3600000;await worker.alarm();
+  const roomRow=JSON.parse(db.prepare('SELECT value FROM state WHERE key=?').get(`room|${p.room}`).value);
+  assert.equal(roomRow.socketPresence.at,now);
+  sockets=[];worker=new Authority(ctx,env);now+=5*60000;
+  const poll=await worker.fetch(new Request('https://relay.test/v1/poll',{method:'POST',headers:{Authorization:`Bearer ${p.token}`},body:JSON.stringify({room:p.room,after:0})}));
+  assert.equal(poll.status,200);
+  now+=600001;await worker.alarm();
+  assert.equal(db.prepare('SELECT value FROM state WHERE key=?').get(`room|${p.room}`),undefined);
   db.close();
 });

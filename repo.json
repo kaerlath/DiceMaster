@@ -13,10 +13,10 @@
                  ],
         "IconUrl":  "https://raw.githubusercontent.com/kaerlath/DiceMaster/main/images/icon.png",
         "RepoUrl":  "https://github.com/kaerlath/DiceMaster",
-        "AssemblyVersion":  "0.5.2.0",
-        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.2/DiceMaster-v0.5.2-plugin.zip",
-        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.2/DiceMaster-v0.5.2-plugin.zip",
-        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.2/DiceMaster-v0.5.2-plugin.zip",
-        "LastUpdate":  1789945300
+        "AssemblyVersion":  "0.5.3.0",
+        "DownloadLinkInstall":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.3/DiceMaster-v0.5.3-plugin.zip",
+        "DownloadLinkUpdate":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.3/DiceMaster-v0.5.3-plugin.zip",
+        "DownloadLinkTesting":  "https://github.com/kaerlath/DiceMaster/releases/download/v0.5.3/DiceMaster-v0.5.3-plugin.zip",
+        "LastUpdate":  1790212595
     }
 ]

@@ -114,7 +114,7 @@ test('room boundaries, lease expiration, departure and empty-room cleanup',async
   assert.equal(Object.keys(h.state().rooms[a.room].modifiers).length,0);
   const fresh=await h.join(a.room); assert.notEqual(fresh.participant,b.participant);
   h.advance(60000); await h.call('poll',{room:a.room,after:0},a);
-  h.advance(31000); await h.call('poll',{room:a.room,after:0},a);
+  h.advance(541000); await h.call('poll',{room:a.room,after:0},a);
   assert(!h.state().rooms[a.room].people[fresh.participant]);
   await h.call('leave',{room:a.room},a);
   assert(!h.state().rooms[a.room]);
@@ -171,7 +171,7 @@ test('public directory is opt-in, sanitized, persistent, and expires with rooms'
   assert.equal((await h.call('gm/modifiers',{room:owner.room},guest)).status,403);
   await h.call('leave',{room:owner.room},guest);
   assert.equal((await h.call('rooms',{})).body.rooms[0].participants,1);
-  h.advance(90001);
+  h.advance(600001);
   assert.deepEqual((await h.call('rooms',{})).body,{rooms:[]});
 });
 
@@ -204,10 +204,10 @@ test('public directory validates input and limits anonymous browsing', async () 
   assert.equal(socketSnapshot(h.state(),identity,1000000).canManage,false);
 });
 
-test('connected sockets retain membership without heartbeat writes, but room expiry still applies',async()=>{
+test('connected sockets retain membership without heartbeat writes, but disconnected membership still expires',async()=>{
   const h=harness(), p=await h.create();
-  h.advance(120000);
-  const service=new Service(h.state(),token(),()=>1120000,new Set([p.participant]));
+  h.advance(700000);
+  const service=new Service(h.state(),token(),()=>1700000,new Set([p.participant]));
   service.cleanup();
   assert(service.state.rooms[p.room].people[p.participant]);
   assert.equal(service.state.rooms[p.room].people[p.participant].seen,1000000);
@@ -252,4 +252,41 @@ test('legacy clients are rejected before Durable Object storage or websocket upg
       assert.equal(response.status,426);
     }
   }
+});
+
+test('active rooms survive the old 12-hour deadline, including legacy persisted rooms',async()=>{
+  const {socketIdentity,socketSnapshot}=await import('../src/sockets.mjs');
+  const h=harness(),p=await h.create(),gm=await h.authenticate(p);
+  await h.call('gm/set',{room:p.room,participant:p.participant,value:4},p,gm);
+  const state=structuredClone(h.state());
+  state.rooms[p.room].expires=1000000+12*3600000; // old deployment data
+  const now=1000000+72*3600000;
+  const service=new Service(state,token(),()=>now,new Set([p.participant]));
+  service.cleanup();
+  assert(state.rooms[p.room]);
+  assert.equal(state.rooms[p.room].modifiers[p.participant],4);
+  const identity=await socketIdentity(state,new Request(`https://relay.test/v1/connect?room=${p.room}`,{headers:{Authorization:`Bearer ${p.token}`}}));
+  assert(identity);
+  assert(socketSnapshot(state,identity,now));
+  assert.equal(socketSnapshot(state,identity,now).canManage,false,'GM sessions must still expire');
+  // Once disconnected and its membership lease expires, cleanup still removes it.
+  service.connected.clear();service.cleanup();
+  assert.equal(state.rooms[p.room],undefined);
+  assert.equal(state.audit.at(-1).reason,'no-participants');
+});
+
+
+test('persisted socket presence survives loss of all sockets and still expires after grace',async()=>{
+  const h=harness(),p=await h.create(),gm=await h.authenticate(p);
+  await h.call('gm/set',{room:p.room,participant:p.participant,value:4},p,gm);
+  let now=1000000+2*3600000;
+  const active=new Service(h.state(),token(),()=>now,new Set([p.participant]));
+  active.checkpointPresence();
+  const restarted=new Service(structuredClone(active.state),token(),()=>now);
+  now+=9*60000;restarted.cleanup();
+  assert(restarted.state.rooms[p.room]?.people[p.participant]);
+  assert.equal(restarted.state.rooms[p.room].modifiers[p.participant],4);
+  now+=60001;restarted.cleanup();
+  assert.equal(restarted.state.rooms[p.room],undefined);
+  assert.equal(restarted.state.audit.at(-2).action,'memberships-expired');
 });

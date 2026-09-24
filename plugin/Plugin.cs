@@ -23,14 +23,15 @@ public sealed class Plugin : IDalamudPlugin
         if (string.IsNullOrWhiteSpace(config.RelayUrl)) config.RelayUrl = Configuration.DefaultRelayUrl;
         relay = new RelayClient(new CredentialStore(Interface.GetPluginConfigDirectory()));
         dice = new DiceWindow(relay, config);
-        main = new MainWindow(config, relay, () => Interface.SavePluginConfig(config), () => dice.IsOpen = true);
+        main = new MainWindow(config, relay, () => Interface.SavePluginConfig(config), ShowDice, dice);
         windows.AddWindow(main); windows.AddWindow(dice);
         Commands.AddHandler("/dicemaster", new CommandInfo((_, _) => Open()) { HelpMessage = "Open DiceMaster." });
         Interface.UiBuilder.Draw += Draw;
         Interface.UiBuilder.OpenMainUi += Open;
         Interface.UiBuilder.OpenConfigUi += Open;
     }
-    private void Draw() { relay.Drain(); using var appearance = new Appearance(config); windows.Draw(); }
+    private void ShowDice() { if (config.SingleWindow) main.ShowTable(); else dice.IsOpen = true; }
+    private void Draw() { relay.Drain(); if (config.SingleWindow) dice.IsOpen = false; using var appearance = new Appearance(config); windows.Draw(); }
     private void Open() { main.IsOpen = true; }
     public void Dispose()
     {

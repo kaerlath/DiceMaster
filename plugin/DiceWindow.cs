@@ -13,15 +13,17 @@ public sealed class DiceWindow : Window
         this.relay = relay; this.config = config; Size = new Vector2(820,680); SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(400,400), MaximumSize = new Vector2(1600,1400) };
     }
-    public override void Draw()
+    public override void Draw() => DrawContents(false);
+    internal void DrawContents(bool embedded)
     {
         var now = relay.ServerNow;
         var roll = relay.Rolls.LastOrDefault(r => r.StartsAt <= now);
         var skin = roll == null ? DiceSkin.Selected(config) : DiceSkin.FromId(roll.Skin);
-        Appearance.Heading("T H E   D I C E   T A B L E",skin.Name + (relay.Joined ? $"  /  {relay.Room}" : "  /  Collection preview"));
+        if (embedded) ImGui.TextColored(Appearance.Muted,skin.Name);
+        else Appearance.Heading("T H E   D I C E   T A B L E",skin.Name + (relay.Joined ? $"  /  {relay.Room}" : "  /  Collection preview"));
         ImGui.TextUnformatted(roll == null ? "The table is ready." : $"{roll.Name}  ·  {roll.Count}d{roll.Sides}");
         var origin = ImGui.GetCursorScreenPos();
-        var area = new Vector2(Math.Max(280,ImGui.GetContentRegionAvail().X),Math.Clamp(ImGui.GetContentRegionAvail().Y*.65f,240,700));
+        var area = new Vector2(Math.Max(280,ImGui.GetContentRegionAvail().X),embedded ? Math.Clamp(ImGui.GetWindowHeight()*.45f,160,340) : Math.Clamp(ImGui.GetContentRegionAvail().Y*.65f,240,700));
         var draw = ImGui.GetWindowDrawList();
         var finish=TableFinish.Selected(config);
         TableFinish.Draw(draw,origin,area,finish,config.TrayDecoration);
@@ -75,13 +77,18 @@ public sealed class DiceWindow : Window
             if (roll.Sides == 100) ImGui.TextUnformatted("Percentile pairs: tens + units; 00 / 0 is 100.");
         }
         ImGui.Spacing(); ImGui.Separator(); ImGui.TextColored(Appearance.Muted,"RECENT ROLLS");
-        if (ImGui.BeginTable("history",3,ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        if (ImGui.BeginTable("history",4,ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
+            ImGui.TableSetupColumn("Time",ImGuiTableColumnFlags.WidthFixed,ImGui.CalcTextSize("00:00:00").X+12);
             ImGui.TableSetupColumn("Player",ImGuiTableColumnFlags.WidthStretch,2);
             ImGui.TableSetupColumn("Dice"); ImGui.TableSetupColumn("Total");
+            ImGui.TableHeadersRow();
             foreach (var r in relay.Rolls.AsEnumerable().Reverse().Where(r => r.StartsAt+r.DurationMs <= now).Take(12))
             {
-                ImGui.TableNextRow(); ImGui.TableNextColumn(); ImGui.TextUnformatted(r.Name);
+                ImGui.TableNextRow(); ImGui.TableNextColumn();
+                ImGui.TextUnformatted(RollTime.Format(r.StartsAt));
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip(RollTime.Detail(r.StartsAt));
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(r.Name);
                 ImGui.TableNextColumn(); ImGui.TextUnformatted($"{r.Count}d{r.Sides}");
                 ImGui.TableNextColumn(); ImGui.TextColored(new Vector4(skin.Edge,1),r.Total.ToString());
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip(string.Join(" + ",r.Faces)+"\n"+DiceSkin.FromId(r.Skin).Name);
